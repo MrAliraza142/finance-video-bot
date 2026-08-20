@@ -72,7 +72,7 @@ Rules:
 
 def generate():
     headlines = fetch_headlines()
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-flash-latest")
     prompt = f"{SYSTEM_PROMPT}\n\nToday's real US finance headlines:\n{headlines}"
     response = model.generate_content(prompt)
 
