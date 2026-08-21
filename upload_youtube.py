@@ -1,9 +1,8 @@
 """
 upload_youtube.py
-Uploads final_video.mp4 to YouTube as a Short using a pre-generated
-OAuth refresh token (obtained once via Google's OAuth Playground; see
-SETUP_GUIDE.md Part 3). The workflow uses it every day without needing
-to log in again.
+Uploads final_video.mp4 to YouTube using a pre-generated OAuth refresh
+token (obtained once via Google's OAuth Playground). Adds #Shorts only
+for short-form videos; long-form videos are uploaded as normal videos.
 """
 
 import os
@@ -33,10 +32,12 @@ def upload():
     with open("today_script.json") as f:
         data = json.load(f)
 
+    is_short = data.get("video_length", "short") != "long"
+
     youtube = get_authenticated_service()
 
     title = data["title"]
-    if "#Shorts" not in title:
+    if is_short and "#Shorts" not in title:
         title = f"{title} #Shorts"
 
     description = data["description"] + "\n\n" + " ".join(data.get("hashtags", []))
