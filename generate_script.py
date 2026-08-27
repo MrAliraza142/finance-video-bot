@@ -93,8 +93,7 @@ def generate():
     headlines = fetch_headlines()
     model = genai.GenerativeModel("gemini-flash-latest")
     prompt = f"{SYSTEM_PROMPT}\n\nToday's real US finance headlines:\n{headlines}"
-    response = model.generate_content(prompt)
-
+    response = model.generate_content(prompt, request_options={"timeout": 300})
     text = response.text.strip()
     if text.startswith("```"):
         text = text.split("```")[1]
