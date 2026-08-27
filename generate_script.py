@@ -1,11 +1,10 @@
 """
 generate_script.py
-Fetches recent US finance/business headlines (free NewsAPI.org tier),
-then uses Google Gemini (free tier) to generate a viral finance script
-following the Hook -> Body -> Ending template, for either a Short
-(45-60s) or a Long-form (8-10 min) video.
-
-Output: writes today_script.json used by later steps.
+Fetches recent US finance/business headlines, then uses Gemini to generate
+BOTH a short (Shorts, <=60s) and a long (5-7 min) script about the SAME
+story, so both formats stay consistent with each other and with the
+channel's single content pillar: US personal/business finance news
+explained simply for everyday people.
 """
 
 import os
@@ -15,7 +14,6 @@ import google.generativeai as genai
 
 NEWS_API_KEY = os.environ["NEWS_API_KEY"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-VIDEO_LENGTH = os.environ.get("VIDEO_LENGTH", "short")  # "short" or "long"
 
 genai.configure(api_key=GEMINI_API_KEY)
 
@@ -25,7 +23,7 @@ def fetch_headlines():
     params = {
         "country": "us",
         "category": "business",
-        "pageSize": 20,
+        "pageSize": 15,
         "apiKey": NEWS_API_KEY,
     }
     r = requests.get(url, params=params, timeout=30)
@@ -36,83 +34,65 @@ def fetch_headlines():
         for a in articles
         if a.get("title")
     ]
-    return "\n".join(headlines[:20])
+    return "\n".join(headlines[:15])
 
 
-def build_prompt(headlines):
-    if VIDEO_LENGTH == "long":
-        length_rules = """
-- Create 16 to 22 scenes total, each scene's voiceover should be 25-40 seconds
-  of spoken content, for a TOTAL video length of 8 to 10 minutes.
-- This is a long-form YouTube video, not a Short. Go deep: include more
-  context, more than one supporting fact/statistic per section, and a
-  fuller worked example.
-"""
-        format_note = "long-form YouTube video (8-10 minutes)"
-    else:
-        length_rules = """
-- Create 6 to 8 scenes total, each scene's voiceover should be 6-9 seconds
-  of spoken content, for a TOTAL video length of 45-60 seconds.
-"""
-        format_note = "short vertical video for YouTube Shorts / TikTok (45-60 seconds)"
+SYSTEM_PROMPT = """You are a Senior Finance Researcher and Script Writer for a
+faceless finance YouTube channel called MoneyPulse. The channel's single
+content pillar, ALWAYS, is: "US personal and business finance news explained
+simply, and how it affects an ordinary person's wallet." No AI avatar/character
+is used - videos are text/graphics/chart-based only, narrated by a voiceover.
 
-    return f"""You are a Senior Finance Researcher, Content Strategist, and Viral
-Script Writer for a faceless finance channel aimed at a US audience. No AI
-avatar/character is used - videos are text/graphics/chart-based only.
+Given today's real US finance/business headlines, pick the SINGLE best story,
+then write TWO versions of that same story:
 
-Given today's real US finance/business headlines below, first do a quick
-internal analysis of which topic has the best mix of viral potential,
-entertainment value, finance value, and US relevancy - then write a
-{format_note} script for the single best topic, following this exact
-structure:
+1. A SHORT version for YouTube Shorts (45-60 seconds spoken total)
+2. A LONG version for a regular YouTube video (5-7 minutes spoken total)
 
-HOOK (first scene): A shocking or emotional line that stops someone from
-scrolling. No boring intros.
+Both versions cover the EXACT SAME topic - the long version just goes deeper
+(more context, more examples, more background) instead of covering something
+different.
 
-BODY (middle scenes, in this order): Problem -> Reality -> Hidden Truth ->
-an interesting fact -> a simple relatable example -> one piece of
-actionable advice. Each part should flow naturally into the next.
+Return ONLY valid JSON, no markdown, in this exact shape:
 
-ENDING (last scene): A strong one-line takeaway, then a comment-trigger
-question, then a "follow for tomorrow" call to action.
-
-Tone: casual, friendly, smart, conversational - never robotic. Easy
-everyday English, avoid jargon unless briefly explained. Only use
-verified, real numbers/facts from the headlines provided - never invent
-statistics.
-
-Return ONLY valid JSON, no markdown, no explanation, in this exact shape:
-
-{{
-  "topic": "the single best topic for today, one clear sentence",
-  "why_it_works": "1-2 sentences on why this will perform well",
-  "title": "punchy video title, under 60 characters",
-  "description": "1-2 sentence YouTube/TikTok description",
-  "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
-  "scenes": [
-    {{
-      "voiceover": "the exact line(s) the narrator says in this scene",
-      "on_screen_text": "short punchy caption text for this scene (max 8 words)",
-      "footage_keyword": "1-3 word search term for free stock footage that fits this scene"
-    }}
-  ]
-}}
+{
+  "topic": "the single story both versions are about",
+  "why_it_works": "1-2 sentences",
+  "short": {
+    "title": "punchy title under 60 characters",
+    "description": "1-2 sentence description",
+    "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
+    "scenes": [
+      {"voiceover": "MAX 18 WORDS", "on_screen_text": "max 8 words", "footage_keyword": "1-3 words"}
+    ]
+  },
+  "long": {
+    "title": "compelling title under 100 characters",
+    "description": "3-4 sentence description",
+    "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
+    "scenes": [
+      {"voiceover": "MAX 30 WORDS", "on_screen_text": "max 8 words", "footage_keyword": "1-3 words"}
+    ]
+  }
+}
 
 Rules:
-{length_rules}
-- Use only verified, real numbers/facts from the provided headlines.
-- Last scene must include a comment-trigger question and a "follow for
-  tomorrow" call to action.
-
-Today's real US finance headlines:
-{headlines}
+- SHORT: exactly 6-8 scenes, each voiceover line 18 words or FEWER. Structure:
+  hook, problem, reality, hidden truth, example, advice, takeaway + comment
+  trigger + follow CTA.
+- LONG: exactly 18-24 scenes, each voiceover line 30 words or FEWER. Structure:
+  hook, background, the news itself, why it's happening, historical context,
+  who is affected, multiple examples, plain-English analysis, what happens
+  next, advice, takeaway + comment trigger + follow CTA.
+- Use only verified, real numbers/facts from the headlines - never invent.
+- Casual, friendly, easy English. WORD LIMITS ARE STRICT.
 """
 
 
 def generate():
     headlines = fetch_headlines()
     model = genai.GenerativeModel("gemini-flash-latest")
-    prompt = build_prompt(headlines)
+    prompt = f"{SYSTEM_PROMPT}\n\nToday's real US finance headlines:\n{headlines}"
     response = model.generate_content(prompt)
 
     text = response.text.strip()
@@ -121,12 +101,22 @@ def generate():
         if text.startswith("json"):
             text = text[4:]
     data = json.loads(text)
-    data["video_length"] = VIDEO_LENGTH
+
+    def trim(scenes, max_words):
+        for s in scenes:
+            words = s["voiceover"].split()
+            if len(words) > max_words:
+                s["voiceover"] = " ".join(words[:max_words]) + "."
+
+    trim(data["short"]["scenes"], 18)
+    trim(data["long"]["scenes"], 30)
 
     with open("today_script.json", "w") as f:
         json.dump(data, f, indent=2)
 
-    print(f"Script generated ({VIDEO_LENGTH}):", data["title"])
+    print("Topic:", data["topic"])
+    print("Short scenes:", len(data["short"]["scenes"]))
+    print("Long scenes:", len(data["long"]["scenes"]))
     return data
 
 
