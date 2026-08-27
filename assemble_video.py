@@ -1,8 +1,8 @@
 """
 assemble_video.py
-Combines per-scene footage + audio + bold on-screen captions into one
-final vertical (1080x1920) MP4 ready for YouTube Shorts / TikTok.
-Uses MoviePy (built on free FFmpeg) - no paid tools involved.
+Builds TWO final videos:
+  - final_video_short.mp4  (vertical 1080x1920, for YouTube Shorts)
+  - final_video_long.mp4   (landscape 1920x1080, for a regular video)
 """
 
 import json
@@ -15,14 +15,12 @@ from moviepy.editor import (
     ColorClip,
 )
 
-W, H = 1080, 1920
 
-
-def build_scene_clip(index, scene):
-    audio = AudioFileClip(f"audio_scene_{index}.mp3")
+def build_scene_clip(audio_path, video_path, caption_text, W, H, caption_h):
+    audio = AudioFileClip(audio_path)
     duration = audio.duration
 
-    video = VideoFileClip(f"footage_scene_{index}.mp4")
+    video = VideoFileClip(video_path)
     video = video.resize(height=H)
     if video.w < W:
         video = video.resize(width=W)
@@ -31,40 +29,4 @@ def build_scene_clip(index, scene):
     if video.duration < duration:
         loops = int(duration // video.duration) + 1
         video = concatenate_videoclips([video] * loops)
-    video = video.subclip(0, duration).set_audio(audio)
-
-    bar = ColorClip(size=(W, 340), color=(0, 0, 0)).set_opacity(0.55)
-    bar = bar.set_position(("center", H - 380)).set_duration(duration)
-
-    caption = TextClip(
-        scene["on_screen_text"],
-        fontsize=64,
-        font="DejaVu-Sans-Bold",
-        color="white",
-        size=(W - 120, None),
-        method="caption",
-        align="center",
-    )
-    caption = caption.set_position(("center", H - 340)).set_duration(duration)
-
-    return CompositeVideoClip([video, bar, caption], size=(W, H))
-
-
-def assemble():
-    with open("today_script.json") as f:
-        data = json.load(f)
-
-    clips = [build_scene_clip(i, scene) for i, scene in enumerate(data["scenes"])]
-    final = concatenate_videoclips(clips, method="compose")
-    final.write_videofile(
-        "final_video.mp4",
-        fps=30,
-        codec="libx264",
-        audio_codec="aac",
-        threads=4,
-    )
-    print("final_video.mp4 created")
-
-
-if __name__ == "__main__":
-    assemble()
+    video = video.subclip(0,
