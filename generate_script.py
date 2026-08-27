@@ -1,10 +1,9 @@
 """
 generate_script.py
-Fetches recent US finance/business headlines, then uses Gemini to generate
-BOTH a short (Shorts, <=60s) and a long (5-7 min) script about the SAME
-story, so both formats stay consistent with each other and with the
-channel's single content pillar: US personal/business finance news
-explained simply for everyday people.
+Fetches recent US finance/business headlines, then makes TWO SEPARATE,
+smaller Gemini calls (one for the Short script, one for the Long script)
+about the SAME topic - this keeps each request fast/reliable instead of
+one huge slow request.
 """
 
 import os
@@ -16,6 +15,9 @@ NEWS_API_KEY = os.environ["NEWS_API_KEY"]
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
 genai.configure(api_key=GEMINI_API_KEY)
+
+PILLAR = ("US personal and business finance news explained simply, and how "
+          "it affects an ordinary person's wallet.")
 
 
 def fetch_headlines():
@@ -37,78 +39,101 @@ def fetch_headlines():
     return "\n".join(headlines[:15])
 
 
-SYSTEM_PROMPT = """You are a Senior Finance Researcher and Script Writer for a
-faceless finance YouTube channel called MoneyPulse. The channel's single
-content pillar, ALWAYS, is: "US personal and business finance news explained
-simply, and how it affects an ordinary person's wallet." No AI avatar/character
-is used - videos are text/graphics/chart-based only, narrated by a voiceover.
-
-Given today's real US finance/business headlines, pick the SINGLE best story,
-then write TWO versions of that same story:
-
-1. A SHORT version for YouTube Shorts (45-60 seconds spoken total)
-2. A LONG version for a regular YouTube video (5-7 minutes spoken total)
-
-Both versions cover the EXACT SAME topic - the long version just goes deeper
-(more context, more examples, more background) instead of covering something
-different.
-
-Return ONLY valid JSON, no markdown, in this exact shape:
-
-{
-  "topic": "the single story both versions are about",
-  "why_it_works": "1-2 sentences",
-  "short": {
-    "title": "punchy title under 60 characters",
-    "description": "1-2 sentence description",
-    "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
-    "scenes": [
-      {"voiceover": "MAX 18 WORDS", "on_screen_text": "max 8 words", "footage_keyword": "1-3 words"}
-    ]
-  },
-  "long": {
-    "title": "compelling title under 100 characters",
-    "description": "3-4 sentence description",
-    "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
-    "scenes": [
-      {"voiceover": "MAX 30 WORDS", "on_screen_text": "max 8 words", "footage_keyword": "1-3 words"}
-    ]
-  }
-}
-
-Rules:
-- SHORT: exactly 6-8 scenes, each voiceover line 18 words or FEWER. Structure:
-  hook, problem, reality, hidden truth, example, advice, takeaway + comment
-  trigger + follow CTA.
-- LONG: exactly 18-24 scenes, each voiceover line 30 words or FEWER. Structure:
-  hook, background, the news itself, why it's happening, historical context,
-  who is affected, multiple examples, plain-English analysis, what happens
-  next, advice, takeaway + comment trigger + follow CTA.
-- Use only verified, real numbers/facts from the headlines - never invent.
-- Casual, friendly, easy English. WORD LIMITS ARE STRICT.
-"""
-
-
-def generate():
-    headlines = fetch_headlines()
+def call_gemini(prompt):
     model = genai.GenerativeModel("gemini-flash-latest")
-    prompt = f"{SYSTEM_PROMPT}\n\nToday's real US finance headlines:\n{headlines}"
-    response = model.generate_content(prompt, request_options={"timeout": 300})
+    response = model.generate_content(prompt, request_options={"timeout": 180})
     text = response.text.strip()
     if text.startswith("```"):
         text = text.split("```")[1]
         if text.startswith("json"):
             text = text[4:]
-    data = json.loads(text)
+    return json.loads(text)
 
-    def trim(scenes, max_words):
-        for s in scenes:
-            words = s["voiceover"].split()
-            if len(words) > max_words:
-                s["voiceover"] = " ".join(words[:max_words]) + "."
 
-    trim(data["short"]["scenes"], 18)
-    trim(data["long"]["scenes"], 30)
+def trim(scenes, max_words):
+    for s in scenes:
+        words = s["voiceover"].split()
+        if len(words) > max_words:
+            s["voiceover"] = " ".join(words[:max_words]) + "."
+
+
+def generate():
+    headlines = fetch_headlines()
+
+    # --- CALL 1: pick the topic + write the SHORT script ---
+    short_prompt = f"""You are a finance script writer for a channel called
+MoneyPulse. Content pillar: {PILLAR} No AI avatar - text/graphics only.
+
+Given today's real US finance headlines, pick the single best story (clearest
+money impact, strongest hook), then write a 45-60 second Shorts script.
+
+Return ONLY valid JSON, no markdown:
+{{
+  "topic": "the story, one sentence",
+  "why_it_works": "1-2 sentences",
+  "title": "punchy title under 60 chars",
+  "description": "1-2 sentence description",
+  "hashtags": ["#tag1","#tag2","#tag3","#tag4","#tag5"],
+  "scenes": [
+    {{"voiceover": "MAX 18 WORDS", "on_screen_text": "max 8 words", "footage_keyword": "1-3 words"}}
+  ]
+}}
+
+Rules: exactly 6-8 scenes, each voiceover 18 words or fewer. Structure: hook,
+problem, reality, hidden truth, example, advice, takeaway + comment trigger +
+follow CTA. Use only real facts from headlines below. Casual, easy English.
+
+Today's headlines:
+{headlines}"""
+
+    short_data = call_gemini(short_prompt)
+    trim(short_data["scenes"], 18)
+
+    # --- CALL 2: write the LONG script about the SAME topic ---
+    long_prompt = f"""You are a finance script writer for a channel called
+MoneyPulse. Content pillar: {PILLAR} No AI avatar - text/graphics only.
+
+Write a 5-7 minute long-form video script about EXACTLY this story:
+"{short_data['topic']}"
+
+Go deeper than a short video: more context, background, examples, plain
+English analysis of why it's happening and what happens next.
+
+Return ONLY valid JSON, no markdown:
+{{
+  "title": "compelling title under 100 chars",
+  "description": "3-4 sentence description",
+  "hashtags": ["#tag1","#tag2","#tag3","#tag4","#tag5"],
+  "scenes": [
+    {{"voiceover": "MAX 30 WORDS", "on_screen_text": "max 8 words", "footage_keyword": "1-3 words"}}
+  ]
+}}
+
+Rules: exactly 14-18 scenes, each voiceover 30 words or fewer. Structure:
+hook, background, the news, why it's happening, historical context, who is
+affected, multiple examples, analysis, what happens next, advice, takeaway +
+comment trigger + follow CTA. Use only real facts, never invent numbers.
+Casual, easy English."""
+
+    long_data = call_gemini(long_prompt)
+    trim(long_data["scenes"], 30)
+
+    data = {
+        "topic": short_data["topic"],
+        "why_it_works": short_data["why_it_works"],
+        "short": {
+            "title": short_data["title"],
+            "description": short_data["description"],
+            "hashtags": short_data["hashtags"],
+            "scenes": short_data["scenes"],
+        },
+        "long": {
+            "title": long_data["title"],
+            "description": long_data["description"],
+            "hashtags": long_data["hashtags"],
+            "scenes": long_data["scenes"],
+        },
+    }
 
     with open("today_script.json", "w") as f:
         json.dump(data, f, indent=2)
