@@ -1,8 +1,7 @@
 """
 upload_youtube.py
-Uploads final_video.mp4 to YouTube using a pre-generated OAuth refresh
-token (obtained once via Google's OAuth Playground). Adds #Shorts only
-for short-form videos; long-form videos are uploaded as normal videos.
+Uploads BOTH final_video_short.mp4 (as a YouTube Short) and
+final_video_long.mp4 (as a regular long-form video).
 """
 
 import os
@@ -28,25 +27,17 @@ def get_authenticated_service():
     return build("youtube", "v3", credentials=creds)
 
 
-def upload():
-    with open("today_script.json") as f:
-        data = json.load(f)
-
-    is_short = data.get("video_length", "short") != "long"
-
-    youtube = get_authenticated_service()
-
-    title = data["title"]
+def upload_one(youtube, video_path, title, description, hashtags, is_short):
     if is_short and "#Shorts" not in title:
         title = f"{title} #Shorts"
 
-    description = data["description"] + "\n\n" + " ".join(data.get("hashtags", []))
+    full_description = description + "\n\n" + " ".join(hashtags)
 
     body = {
         "snippet": {
             "title": title[:100],
-            "description": description,
-            "tags": [h.strip("#") for h in data.get("hashtags", [])],
+            "description": full_description,
+            "tags": [h.strip("#") for h in hashtags],
             "categoryId": "25",
         },
         "status": {
@@ -55,16 +46,38 @@ def upload():
         },
     }
 
-    media = MediaFileUpload("final_video.mp4", chunksize=-1, resumable=True)
+    media = MediaFileUpload(video_path, chunksize=-1, resumable=True)
     request = youtube.videos().insert(part="snippet,status", body=body, media_body=media)
 
     response = None
     while response is None:
         status, response = request.next_chunk()
         if status:
-            print(f"Upload progress: {int(status.progress() * 100)}%")
+            print(f"  Upload progress: {int(status.progress() * 100)}%")
 
-    print("Uploaded! Video ID:", response["id"])
+    print(f"Uploaded! Video ID: {response['id']}")
+    return response["id"]
+
+
+def upload():
+    with open("today_script.json") as f:
+        data = json.load(f)
+
+    youtube = get_authenticated_service()
+
+    print("Uploading SHORT...")
+    upload_one(
+        youtube, "final_video_short.mp4",
+        data["short"]["title"], data["short"]["description"],
+        data["short"].get("hashtags", []), is_short=True,
+    )
+
+    print("Uploading LONG...")
+    upload_one(
+        youtube, "final_video_long.mp4",
+        data["long"]["title"], data["long"]["description"],
+        data["long"].get("hashtags", []), is_short=False,
+    )
 
 
 if __name__ == "__main__":
