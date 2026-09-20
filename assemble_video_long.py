@@ -19,9 +19,13 @@ W, H, CAPTION_H = 1920, 1080, 220
 CROSSFADE = 0.35  # seconds of overlap between scenes
 
 # MoneyPulse brand colors
+# RGB tuples are for ColorClip (solid background bars).
+# Hex strings are for TextClip (text color must be a name or hex string).
 NAVY = (13, 20, 40)
 GOLD = (234, 179, 8)
-GREEN = (16, 185, 129)
+
+GOLD_HEX = "#EAB308"
+GREEN_HEX = "#10B981"
 
 
 def apply_ken_burns(video, duration, zoom_amount=0.06):
@@ -40,7 +44,7 @@ def make_caption(text, is_number_of_day, fontsize):
         color="black", stroke_color="black", stroke_width=6,
         size=(W - 200, None), method="caption", align="center",
     )
-    fill_color = GOLD if is_number_of_day else "white"
+    fill_color = GOLD_HEX if is_number_of_day else "white"
     fill = TextClip(
         text, fontsize=fontsize, font="DejaVu-Sans-Bold",
         color=fill_color, size=(W - 200, None), method="caption", align="center",
@@ -89,7 +93,7 @@ def build_scene_clip(i, scene):
 def make_intro_card(title):
     bg = ColorClip(size=(W, H), color=NAVY, duration=2.5)
     brand = TextClip(
-        "MoneyPulse", fontsize=90, font="DejaVu-Sans-Bold", color=GREEN,
+        "MoneyPulse", fontsize=90, font="DejaVu-Sans-Bold", color=GREEN_HEX,
     ).set_position(("center", H / 2 - 140)).set_duration(2.5)
     headline = TextClip(
         title, fontsize=54, font="DejaVu-Sans-Bold", color="white",
