@@ -2,13 +2,17 @@
 generate_script_short.py
 Trend-research + viral script generation for the SHORT (YouTube Shorts)
 pipeline. Mixes evergreen finance-psychology topics (70%) with real daily
-news (30%) so the channel isn't fully dependent on NewsAPI/news freshness.
+news (30%). A CODE-LEVEL safety check (not just prompt instructions)
+guarantees every published video is strictly personal-finance-wallet
+relevant - if the AI's news-based output fails the check, the code
+automatically falls back to a guaranteed-safe evergreen topic instead.
 """
 
 import os
 import json
 import time
 import random
+from datetime import date
 import requests
 import google.generativeai as genai
 
@@ -17,10 +21,14 @@ GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-# Chance that today's video is a real-news topic instead of evergreen.
 NEWS_PROBABILITY = 0.3
+CHANNEL_LAUNCH_DATE = date(2026, 9, 18)
 
-# Evergreen finance-psychology topic pool (rotates randomly). Add more anytime.
+
+def get_day_number():
+    return (date.today() - CHANNEL_LAUNCH_DATE).days + 1
+
+
 EVERGREEN_TOPICS = [
     "why people stay poor even with a good salary (lifestyle inflation)",
     "the psychology of impulse spending and how ads exploit it",
@@ -57,74 +65,96 @@ def fetch_headlines():
     )[:6000]
 
 
-NEWS_PROMPT = """You are a Senior Finance Trend Research Analyst AND viral TikTok/
-Shorts script writer for a US finance channel called MoneyPulse.
+SHARED_RULES = """
+SERIES FORMAT (mandatory):
+- This is Day {day_number} of an ongoing daily series called MoneyPulse.
+- The title MUST include "Day {day_number}" somewhere.
 
-STEP 1 - TREND RESEARCH: Look at today's real US finance/business headlines
-below. Mentally score the top candidate stories on: Viral Score, Entertainment
-Score, Finance Value, US Relevancy, Audience Curiosity. Pick the single best
-"Topic of Today" - the one most likely to stop someone scrolling and go viral.
+NUMBER OF THE DAY (mandatory):
+- Exactly ONE scene must be a dedicated "Number of the Day" moment: one
+  concrete, real, verified number/statistic, presented punchily. Mark this
+  scene by starting its on_screen_text with "NUMBER OF THE DAY:".
 
-STEP 2 - SCRIPT: Write a 45-60 second Shorts script for that topic.
-Tone: casual, friendly, entertaining, smart, not robotic.
-Structure: HOOK (shocking/emotional, 0-3 sec) -> BODY (problem -> reality ->
-hidden truth -> simple example -> actionable advice) -> ENDING (strong
-takeaway -> comment-trigger question -> follow CTA).
-Use only verified, real numbers from the headlines - never invent stats.
-Easy English, avoid jargon, natural flow, end in a way that makes people want
-"part 2" tomorrow.
-
-Return ONLY valid JSON, no markdown:
-{
-  "topic": "one sentence",
-  "why_it_works": "1-2 sentences",
-  "title": "punchy title under 60 chars",
-  "description": "1-2 sentence description",
-  "hashtags": ["#tag1","#tag2","#tag3","#tag4","#tag5"],
-  "scenes": [
-    {"voiceover": "MAX 18 WORDS", "on_screen_text": "max 8 words", "footage_keyword": "1-3 words"}
-  ]
-}
-Rules: exactly 6-8 scenes, each voiceover 18 words or FEWER (count before
-finalizing).
-
-Today's real US finance headlines:
+CLIFFHANGER ENDING (mandatory):
+- The very last scene must end with a short teaser for tomorrow's video
+  without revealing specifics, plus a comment-trigger question and follow CTA.
 """
 
-EVERGREEN_PROMPT = """You are a viral TikTok/Shorts script writer for a US
-finance channel called MoneyPulse, specializing in personal finance
-psychology and money mistakes - the kind of content that stays relevant
-forever, not tied to any specific day's news.
+# The "wallet_impact" field is the code-level enforcement mechanism.
+# If the model cannot fill this with a real, specific, non-generic answer,
+# that is the signal the story does not belong on this channel.
+NEWS_PROMPT = """You are a Senior Finance Trend Research Analyst AND viral TikTok/
+Shorts script writer for a US finance channel called MoneyPulse, which is
+STRICTLY about personal finance - how news affects an ordinary person's
+wallet, prices, job, savings, or daily money life. It is NEVER about general
+tech, AI industry, corporate/legal drama, or business news with no personal
+money angle.
 
-Today's assigned topic: {topic}
+STEP 1: From today's headlines below, pick the ONE story with the clearest,
+most direct personal-wallet impact (interest rates, inflation, prices, jobs,
+housing, loans, taxes, benefits, layoffs, banking, etc).
 
-Write a 45-60 second Shorts script on this topic.
-Tone: casual, friendly, entertaining, smart, relatable, not robotic - like a
-smart friend explaining something eye-opening.
-Structure: HOOK (shocking/relatable, 0-3 sec) -> BODY (the mistake/myth ->
-why it happens psychologically -> a simple real-life example -> the fix) ->
-ENDING (strong takeaway -> comment-trigger question -> follow CTA).
-Do not invent specific statistics or cite fake studies - keep examples
-generic/relatable instead of claiming exact numbers.
-Easy English, avoid jargon, natural flow.
+STEP 2: Before writing the script, fill "wallet_impact" with ONE specific,
+concrete sentence describing exactly how this changes an ordinary person's
+money, in dollars/percentage/job terms if possible. If you cannot write a
+real, specific, non-generic sentence here, this story does not qualify -
+pick a different headline or use the closest available one and make the
+wallet_impact honestly reflect the connection.
 
+STEP 3: Write a 45-60 second Shorts script for that topic.
+Tone: casual, friendly, entertaining, smart, not robotic.
+Structure: HOOK (0-3 sec) -> BODY (problem -> reality -> hidden truth ->
+example -> advice) -> ENDING (takeaway -> comment-trigger question -> CTA).
+Use only verified real numbers from the headlines - never invent stats.
+{shared_rules}
 Return ONLY valid JSON, no markdown:
 {{
   "topic": "one sentence",
+  "wallet_impact": "one specific sentence: exactly how this affects an ordinary person's money",
   "why_it_works": "1-2 sentences",
-  "title": "punchy title under 60 chars",
+  "title": "punchy title under 60 chars, must include Day {day_number}",
   "description": "1-2 sentence description",
   "hashtags": ["#tag1","#tag2","#tag3","#tag4","#tag5"],
   "scenes": [
     {{"voiceover": "MAX 18 WORDS", "on_screen_text": "max 8 words", "footage_keyword": "1-3 words"}}
   ]
 }}
-Rules: exactly 6-8 scenes, each voiceover 18 words or FEWER (count before
-finalizing).
+Rules: exactly 6-8 scenes, each voiceover 18 words or FEWER.
+
+Today's real US finance headlines:
+"""
+
+EVERGREEN_PROMPT = """You are a viral TikTok/Shorts script writer for a US
+finance channel called MoneyPulse, specializing in personal finance
+psychology and money mistakes.
+
+Today's assigned topic: {topic}
+
+Write a 45-60 second Shorts script on this topic.
+Tone: casual, friendly, entertaining, smart, relatable, not robotic.
+Structure: HOOK (0-3 sec) -> BODY (mistake/myth -> why it happens
+psychologically -> real-life example -> the fix) -> ENDING (takeaway ->
+comment-trigger question -> CTA).
+Do not invent specific statistics, EXCEPT for the mandatory Number of the
+Day scene, which must use a real, well-known statistic.
+{shared_rules}
+Return ONLY valid JSON, no markdown:
+{{
+  "topic": "one sentence",
+  "wallet_impact": "one specific sentence: exactly how this affects an ordinary person's money",
+  "why_it_works": "1-2 sentences",
+  "title": "punchy title under 60 chars, must include Day {day_number}",
+  "description": "1-2 sentence description",
+  "hashtags": ["#tag1","#tag2","#tag3","#tag4","#tag5"],
+  "scenes": [
+    {{"voiceover": "MAX 18 WORDS", "on_screen_text": "max 8 words", "footage_keyword": "1-3 words"}}
+  ]
+}}
+Rules: exactly 6-8 scenes, each voiceover 18 words or FEWER.
 """
 
 
-def call_gemini_with_retry(prompt, attempts=3):
+def call_gemini_with_retry(prompt, attempts=5):
     model = genai.GenerativeModel("gemini-flash-latest")
     last_err = None
     for i in range(attempts):
@@ -139,23 +169,63 @@ def call_gemini_with_retry(prompt, attempts=3):
         except Exception as e:
             last_err = e
             print(f"Gemini attempt {i+1} failed: {e}")
-            time.sleep(10)
+            wait_time = 60
+            err_str = str(e)
+            if "retry_delay" in err_str and "seconds:" in err_str:
+                try:
+                    suggested = int(err_str.split("seconds:")[1].split("}")[0].strip())
+                    wait_time = suggested + 15
+                except Exception:
+                    pass
+            print(f"Waiting {wait_time}s before retry...")
+            time.sleep(wait_time)
     raise last_err
 
 
+# CODE-LEVEL SAFETY CHECK - this is the part that actually guarantees the
+# niche, regardless of what the AI decides to do.
+def passes_niche_check(data):
+    impact = data.get("wallet_impact", "").strip().lower()
+    if len(impact) < 15:
+        return False
+    banned_generic_phrases = [
+        "affects the economy", "impacts businesses", "affects investors",
+        "affects the market", "affects companies",
+    ]
+    if any(phrase in impact for phrase in banned_generic_phrases):
+        return False
+    # Must reference an actual personal-money concept.
+    money_signals = [
+        "$", "price", "job", "salary", "wage", "rent", "mortgage", "loan",
+        "tax", "save", "spend", "debt", "interest rate", "cost", "pay",
+        "bill", "income", "budget",
+    ]
+    if not any(signal in impact for signal in money_signals):
+        return False
+    return True
+
+
 def generate():
+    day_number = get_day_number()
+    shared_rules = SHARED_RULES.format(day_number=day_number)
     use_news = random.random() < NEWS_PROBABILITY
 
+    data = None
     if use_news:
-        print("Mode: NEWS (30% chance)")
+        print(f"Mode: NEWS (30% chance) - Day {day_number}")
         headlines = fetch_headlines()
-        prompt = NEWS_PROMPT + headlines
-    else:
-        topic = random.choice(EVERGREEN_TOPICS)
-        print(f"Mode: EVERGREEN (70% chance) - topic: {topic}")
-        prompt = EVERGREEN_PROMPT.format(topic=topic)
+        prompt = NEWS_PROMPT.format(shared_rules=shared_rules, day_number=day_number) + headlines
+        data = call_gemini_with_retry(prompt)
 
-    data = call_gemini_with_retry(prompt)
+        if not passes_niche_check(data):
+            print("NEWS topic FAILED niche check - falling back to evergreen topic.")
+            data = None  # discard, fall through to evergreen below
+
+    if data is None:
+        topic = random.choice(EVERGREEN_TOPICS)
+        print(f"Mode: EVERGREEN - Day {day_number} - topic: {topic}")
+        prompt = EVERGREEN_PROMPT.format(topic=topic, shared_rules=shared_rules, day_number=day_number)
+        data = call_gemini_with_retry(prompt)
 
     for s in data["scenes"]:
         words = s["voiceover"].split()
@@ -166,6 +236,7 @@ def generate():
         json.dump(data, f, indent=2)
 
     print("SHORT topic:", data["topic"])
+    print("Wallet impact:", data.get("wallet_impact"))
     print("Scenes:", len(data["scenes"]))
     return data
 
