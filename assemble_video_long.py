@@ -1,8 +1,11 @@
 """
 assemble_video_long.py
 Builds final_video_long.mp4 (landscape 1920x1080) for a regular video.
-Adds: crossfade transitions, Ken Burns zoom, outlined/glow-style captions,
-a highlighted "Number of the Day" segment, and a branded intro title card.
+Professional edition: crossfade transitions, per-scene static zoom variation
+(cheap - applied once, not animated per-frame, to avoid the memory/CPU
+crashes that animated Ken Burns caused on GitHub Actions' free runners),
+outlined captions, a highlighted "Number of the Day" segment, and a branded
+intro title card.
 """
 
 import json
@@ -16,41 +19,21 @@ from moviepy.editor import (
 )
 
 W, H, CAPTION_H = 1920, 1080, 220
-CROSSFADE = 0.35  # seconds of overlap between scenes
+CROSSFADE = 0.35
 
-# MoneyPulse brand colors
-# RGB tuples are for ColorClip (solid background bars).
-# Hex strings are for TextClip (text color must be a name or hex string).
 NAVY = (13, 20, 40)
 GOLD = (234, 179, 8)
-
 GOLD_HEX = "#EAB308"
 GREEN_HEX = "#10B981"
 
 
-def apply_ken_burns(video, duration, zoom_amount=0.06):
-    """Slow zoom-in over the clip's duration, output size stays fixed."""
-    def resize_fn(t):
-        return 1 + zoom_amount * (t / duration)
-    zoomed = video.resize(resize_fn)
-    return zoomed.crop(
-        x_center=zoomed.w / 2, y_center=zoomed.h / 2, width=W, height=H
-    )
-
-
 def make_caption(text, is_number_of_day, fontsize):
-    outline = TextClip(
+    fill_color = GOLD_HEX if is_number_of_day else "white"
+    return TextClip(
         text, fontsize=fontsize, font="DejaVu-Sans-Bold",
-        color="black", stroke_color="black", stroke_width=6,
+        color=fill_color, stroke_color="black", stroke_width=3,
         size=(W - 200, None), method="caption", align="center",
     )
-    fill_color = GOLD_HEX if is_number_of_day else "white"
-    fill = TextClip(
-        text, fontsize=fontsize, font="DejaVu-Sans-Bold",
-        color=fill_color, size=(W - 200, None), method="caption", align="center",
-    )
-    return CompositeVideoClip([outline, fill.set_position(("center", "center"))],
-                               size=outline.size)
 
 
 def build_scene_clip(i, scene):
@@ -61,13 +44,16 @@ def build_scene_clip(i, scene):
     video = video.resize(height=H)
     if video.w < W:
         video = video.resize(width=W)
+
+    # STATIC zoom variation per scene - applied once, not animated.
+    zoom_factor = 1.0 + (0.08 if i % 2 == 0 else 0.13)
+    video = video.resize(zoom_factor)
     video = video.crop(x_center=video.w / 2, y_center=video.h / 2, width=W, height=H)
 
     if video.duration < duration:
         loops = int(duration // video.duration) + 1
         video = concatenate_videoclips([video] * loops)
     video = video.subclip(0, duration)
-    video = apply_ken_burns(video, duration)
     video = video.set_audio(audio)
 
     on_screen_text = scene["on_screen_text"]
@@ -82,9 +68,6 @@ def build_scene_clip(i, scene):
     caption = make_caption(on_screen_text, is_number_of_day, fontsize=52 if is_number_of_day else 48)
     caption = caption.set_position(("center", H - CAPTION_H))
     caption = caption.set_duration(duration)
-    # Small pop-in for the Number of the Day moment
-    if is_number_of_day:
-        caption = caption.resize(lambda t: 1 + 0.08 * max(0, 0.4 - t) if t < 0.4 else 1)
 
     scene_clip = CompositeVideoClip([video, bar, caption], size=(W, H))
     return scene_clip.crossfadein(CROSSFADE)
